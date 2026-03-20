@@ -11,10 +11,8 @@ from homeassistant.data_entry_flow import FlowResult
 _LOGGER = logging.getLogger(__name__)
 
 
-@config_entries.HANDLERS.register(DOMAIN)
 class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -33,15 +31,11 @@ class GoveeFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return GoveeOptionsFlowHandler(config_entry)
+        return GoveeOptionsFlowHandler()
 
 
 class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
     VERSION = 1
-
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
 
     async def async_step_init(self, user_input=None):
         return await self.async_step_user()
@@ -53,9 +47,7 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
 
         errors = {}
         if user_input is not None:
-            api_key = user_input[CONF_API_KEY]
-            self.options.update(user_input)
-            return await self._update_options()
+            return self.async_create_entry(title=DOMAIN, data=user_input)
 
         options_schema = vol.Schema(
             {vol.Optional(CONF_API_KEY, default=current_api_key): cv.string}
@@ -64,6 +56,3 @@ class GoveeOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="user", data_schema=options_schema, errors=errors
         )
-
-    async def _update_options(self):
-        return self.async_create_entry(title=DOMAIN, data=self.options)

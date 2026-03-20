@@ -1,10 +1,6 @@
-import copy
 import asyncio
-import random
 import math
-import json
 import logging
-import socket
 import time
 
 from typing import Any, Dict
@@ -15,13 +11,8 @@ from homeassistant.components.light import (
     ColorMode,
     ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
-    ATTR_COLOR_TEMP,
     ATTR_COLOR_TEMP_KELVIN,
-    ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
-    SUPPORT_BRIGHTNESS,
-    SUPPORT_COLOR,
-    SUPPORT_COLOR_TEMP,
     LightEntity,
     PLATFORM_SCHEMA,
 )
@@ -29,22 +20,15 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo, Entity
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from homeassistant.util import color
-from homeassistant.util.timeout import TimeoutManager
 from .const import DOMAIN
 import voluptuous as vol
-from bleak import BleakClient, BleakError
 from homeassistant.components import bluetooth
 from govee_led_wez import (
     GoveeController,
     GoveeDevice,
-    GoveeDeviceState,
     GoveeColor,
-    GoveeHttpDeviceDefinition,
-    GoveeLanDeviceDefinition,
 )
 
 # Serialize async_update calls, even though they are async capable.
@@ -136,7 +120,7 @@ async def async_setup_entry(
 
     api_key = entry.options.get(CONF_API_KEY, entry.data.get(CONF_API_KEY, None))
 
-    entry.async_on_unload(controller.stop)
+    entry.async_on_unload(controller.async_stop)
 
     async def update_config(hass: core.HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("config options were changed")
@@ -161,7 +145,7 @@ async def async_setup_entry(
             await asyncio.sleep(interval)
             controller.start_http_poller(interval)
 
-        hass.loop.create_task(http_poller(HTTP_POLL_INTERVAL))
+        hass.async_create_task(http_poller(HTTP_POLL_INTERVAL))
 
     interfaces = await async_get_interfaces(hass)
     controller.start_lan_poller(interfaces)
@@ -200,7 +184,6 @@ class GoveLightEntity(LightEntity):
     _attr_min_color_temp_kelvin = 2000
     _attr_max_color_temp_kelvin = 9000
     _attr_supported_color_modes = {
-        ColorMode.BRIGHTNESS,
         ColorMode.COLOR_TEMP,
         ColorMode.RGB,
     }
@@ -265,16 +248,12 @@ class GoveLightEntity(LightEntity):
         )
 
         if state:
-            self._attr_color_temp_kelvin = state.color_temperature
             if state.color_temperature and state.color_temperature > 0:
-                self._attr_color_temp = color.color_temperature_kelvin_to_mired(
-                    state.color_temperature
-                )
+                self._attr_color_temp_kelvin = state.color_temperature
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_rgb_color = None
             elif state.color is not None:
                 self._attr_color_temp_kelvin = None
-                self._attr_color_temp = None
                 self._attr_color_mode = ColorMode.RGB
                 self._attr_rgb_color = state.color.as_tuple()
 
@@ -288,7 +267,7 @@ class GoveLightEntity(LightEntity):
         self._attr_extra_state_attributes["lan_enabled"] = device.lan_definition is not None
 
         if self.entity_id:
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         _LOGGER.debug(
@@ -331,18 +310,6 @@ class GoveLightEntity(LightEntity):
                     self._govee_device, color_temp_kelvin
                 )
                 turn_on = False
-            elif ATTR_COLOR_TEMP in kwargs:
-                color_temp = kwargs.pop(ATTR_COLOR_TEMP)
-                color_temp_kelvin = color.color_temperature_mired_to_kelvin(color_temp)
-                color_temp_kelvin = max(
-                    min(color_temp_kelvin, self._attr_max_color_temp_kelvin),
-                    self._attr_min_color_temp_kelvin,
-                )
-                await self._govee_controller.set_color_temperature(
-                    self._govee_device, color_temp_kelvin
-                )
-                turn_on = False
-
             if turn_on:
                 await self._govee_controller.set_power_state(self._govee_device, True)
 
